@@ -17,16 +17,9 @@ from pydantic import BaseModel, Field
 from dataclasses import dataclass, field
 import operator
 from langgraph.graph import StateGraph
-from tools import fetch_and_rank_news
-
-
-
-@dataclass
-class State:
-    query: str
-    chat_history: List[BaseMessage] = field(default_factory=list)
-    agent_outcome : Union[AgentAction, AgentFinish, None] = None
-    intermediate_steps: Annotated[List[tuple[AgentAction, str]], operator.add] = field(default_factory=list)
+from agent.tools import fetch_and_rank_news
+from agent.prediction_node import prediction_node
+from agent.state import State
 
 
 llm = Ollama(model="llama3")
@@ -41,20 +34,33 @@ agent_runnable = initialize_agent(
 
 
 async def run_agent(state: State) -> dict:
+    predicted = state.predicted_winner
+    opponent = state.away_team if predicted == state.home_team else state.home_team
+    payload = {
+        "query": state.query,
+        "home_team": state.home_team,
+        "away_team": state.away_team,
+        "game_date": state.game_date,
+        "predicted_winner": predicted,
+        "opponent": opponent,
+        "confidence": state.confidence,
+    }
     result = await agent_runnable.ainvoke({
-        "input": state.query,
+        "input": f"fetch_and_rank_news({json.dumps(payload)})",
         "chat_history": state.chat_history,
-        })
+    })
     return {
-        "query": result,
-        "agent_outcome": None
+        "query": state.query,
+        "agent_outcome": result,
     }
 
 
 graph = (
     StateGraph(State)
+    .add_node("predict", prediction_node)
     .add_node("run_agent", run_agent)
-    .add_edge("__start__", "run_agent")
+    .add_edge("__start__", "predict")
+    .add_edge("predict", "run_agent")
     .add_edge("run_agent", "__end__")
     .compile()
 )

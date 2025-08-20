@@ -18,14 +18,12 @@ from typing_extensions import Annotated
 from langchain_ollama import OllamaLLM as Ollama
 import asyncio
 from langchain_core.tools import tool
-from enrichment_agent.configuration import Configuration
-from enrichment_agent.state import State
-from enrichment_agent.utils import init_model
 from dotenv import load_dotenv
 from newspaper import Article
 import re
 import os
 load_dotenv()
+
 
 tavily = TavilyClient(api_key = os.getenv("TAVILY_API_KEY"))
 llm = Ollama(model = "llama3")
@@ -58,12 +56,25 @@ def is_box_score_url(url: str) -> bool:
     return any(k in url.lower() for k in keywords)
 
 
-async def async_rank_articles(query: str, summaries: list[str]) -> str:
-    summary_list = "\n\n".join([f"[{i}] {s}" for i, s in enumerate(summaries)])
+async def async_rank_articles(query: str, summaries: list[str], articles: list[dict], predicted_winner : str, opponent: str) -> str:
+    items_block = []
+    for i, (s, a) in enumerate(zip(summaries, articles)):
+        items_block.append(
+            f"[{i}]\nTitle: {a.get('title', 'Untitled')}\nURL: {a.get('url','')}\nSummary:\n{s}"
+        )
+    summary_list = "\n\n".join(items_block)
     rank_prompt = (
-        f"Rank the following article summaries in order of relevance to predicting the outcome "
-        f"of the game: '{query}'. Return the top 3 indices and explain your choice:\n\n"
-        f"{summary_list}\n\nTop 3 indices and rationale:"
+        f"You are ranking news for explainability.\n\n"
+        f"Game: {query}\n"
+        f"Model pick: {predicted_winner} over {opponent}\n\n"
+        "Rank the summaries by how well they SUPPORT this pick with concrete evidence:\n"
+        "- injuries/availability favoring the pick\n"
+        "- form/matchup trends favoring the pick\n"
+        "- odds/market movement aligning with the pick\n"
+        "- analyst/beat-writer lean for the pick\n\n"
+        "Prefer more recent and more concrete sourcing.\n"
+        "Return a Ranking of the JSON with the TOP THREE separate from the rest with a rating, website URL, and a reason why it was rated/ranked:\n\n"
+        f"{summary_list}\n\nJSON:"
     )
     return await llm.ainvoke(rank_prompt)
 
@@ -77,15 +88,34 @@ async def async_summarize_article(title, source, text):
 
 async def fetch_articles_async(query: str, num_results: int = 10) -> List[dict]:
     search_query = f"{query} game preview prediction odds injuries -boxscore -recap"
-    return await asyncio.to_thread(tavily.search, search_query, max_results=num_results, search_depth="advanced", exclude_domains=["espn.com", "nba.com"])
+    return await asyncio.to_thread(tavily.search, search_query, max_results=num_results, search_depth="advanced")
+
 
 @tool("fetch_and_rank_news", return_direct = True)
-async def fetch_and_rank_news(query: str) -> str:
+async def fetch_and_rank_news(payload : str) -> str:
     """Fetch and rank news articles related to a specific game or topic."""
+
+    try:
+        data = json.loads(payload)
+    except Exception as e:
+        return f"Invalid JSON payload: {e}"
+
+    query = data.get("query") or ""
+    predicted_winner = data.get("predicted_winner")
+    opponent = data.get("opponent")
+    confidence = data.get("confidence")
+
+    if not (predicted_winner and opponent):
+        return ("fetch_and_rank_news now expects a model pick.\n"
+                "Provide predicted_winner and opponent to rank supportively "
+                "and synthesize an explanation.")
+
+
     response = await fetch_articles_async(query)
     raw_articles = response.get("results", [])
     if not raw_articles:
         return "No articles found."
+    
     articles = []
     summaries = []
     for article in raw_articles:
@@ -113,36 +143,38 @@ async def fetch_and_rank_news(query: str) -> str:
         })
 
     try:
-        ranking = await async_rank_articles(query, summaries)
+        ranking = await async_rank_articles(query, summaries, articles, predicted_winner, opponent)
         top_indices = list(map(int, re.findall(r"\[(\d+)\]", ranking)))[:3]
     except Exception as e:
         ranking = f"Error ranking articles: {e}"
 
+    
     top_articles = [articles[i] for i in top_indices if i < len(articles)]
+    
 
     formatted_articles = "\n\n---\n\n".join([
         f"Title: {a['title']}\nSource: {a['source']}\nURL: {a['url']}\n\nSummary: {a['summary']}"
         for a in top_articles
     ])
 
-    synthesis_prompt = (
-        f"Based on the following article summaries, compile a single unified report "
-        f"about the upcoming game: '{query}'.\n\n"
-        f"Include:\n"
-        f"- Player availability (without assuming final outcomes)\n"
-        f"- Team momentum\n"
-        f"- Analyst picks\n"
-        f"- Betting odds\n"
-        f"- General sentiment\n\n"
-        f"**Exclude**:\n"
-        f"- Any final scores or box scores\n"
-        f"- Game results — assume the game has not happened yet.\n\n"
-        f"Summaries:\n\n"
-        f"{formatted_articles}\n\n"
-        f"Unified Game Preview:"
-)
+    conf_txt = f"{confidence:.1%}" if isinstance(confidence, (int, float)) else "N/A"
 
-    print(synthesis_prompt)
+    synthesis_prompt = (
+        f"Create a concise, evidence-backed explanation for why **{predicted_winner}** over **{opponent}** "
+        f"is a reasonable pick for: {query}. Model confidence: {conf_txt}.\n\n"
+        "Use only the article summaries below as evidence. Attribute claims to their sources. Focus on:\n"
+        "- injuries/availability favoring the pick\n"
+        "- recent form & matchup trends favoring the pick\n"
+        "- odds/market movement aligning with the pick\n"
+        "- analyst/beat-writer lean in the same direction\n\n"
+        "Avoid outcome spoilers or post-game recaps; treat as pre-game context.\n\n"
+        f"Articles:\n\n{formatted_articles}\n\n"
+        "Now produce:\n"
+        "1) 3–6 bullet **Evidence summary** with source attributions\n"
+        "2) A short **Why this supports the pick** paragraph tying the evidence to the winner\n"
+    )
+
+
     try:
         final_summary = await llm.ainvoke(synthesis_prompt)
     except Exception as e:
@@ -150,6 +182,7 @@ async def fetch_and_rank_news(query: str) -> str:
 
     return (
         f"Ranking for '{query}':\n\n{ranking}\n\n"
+        f"Summaries:\n\n{formatted_articles}\n\n"
         f"Unified Game Preview:\n\n{final_summary}"
     )
 

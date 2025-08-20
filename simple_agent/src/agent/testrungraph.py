@@ -3,14 +3,20 @@ from graph import graph, State
 
 
 async def run():
-    input_state = State(
-        query="Lakers vs Celtics NBA 01-23-2025",
-        chat_history=[],
-        intermediate_steps=[],
-    )
-    result = await graph.ainvoke(input_state)
-    print("\n✅ FINAL OUTPUT:")
-    print(result)
+    payload = {
+        "query": "Lakers vs Warriors NBA 04-04-2019 Prediction",
+        "home_team": "LAL",
+        "away_team": "GSW",
+        "game_date": "04-04-2019",
+    }
+    result = await graph.ainvoke(payload)
+    print("== MODEL PICK ==")
+    print("Predicted:", result.get("predicted_winner"))
+    conf = result.get("confidence")
+    if conf is not None:
+        print("Confidence:", f"{conf:.1%}")
+    print("\n== EVIDENCE-BACKED PREVIEW (Agent Output) ==\n")
+    print(result.get("news_preview_text"))
 
 if __name__ == "__main__":
     asyncio.run(run())
