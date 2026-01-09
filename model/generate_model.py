@@ -325,6 +325,26 @@ def standings_rank(team_dict, ranking):
 
 min_max_scaler = preprocessing.MinMaxScaler(feature_range = (-1,1))
 
+EXTRA_COLUMNS = {"GmSc"}
+
+
+def sanitize_game_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
+    drop_cols = [col for col in EXTRA_COLUMNS if col in df.columns]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+    return df
+
+
+def get_schema_columns(team_dict: dict) -> list[str]:
+    for _, teams in team_dict.items():
+        for _, opponents in teams.items():
+            for _, df in opponents.items():
+                df = sanitize_game_df(df)
+                df = df.drop(["Starters", "Home"], axis=1, errors="ignore")
+                return list(df.columns)
+    return []
+
 
 def final_shape(arrays):
     x_list = []
@@ -356,8 +376,7 @@ def predict_single_game(model, team_dict, team1, team2, game_date, end_date):
     """
     Predicts the winner between two teams on a given date using your trained model.
     """
-
-    game_date = datetime.datetime.strptime(game_date, "%m-%d-%Y").date()
+    game_date = _normalize_game_date(game_date)
 
     player_enc, team_enc, safeplayers, safeteam = encode(team_dict)
     new_dict = process_dict(team_dict, safeplayers, safeteam)
@@ -382,7 +401,11 @@ def predict_single_game(model, team_dict, team1, team2, game_date, end_date):
     ])
 
     df = df[df['Starters'] != 'Team Totals']
-    df = df.drop(['Starters', 'Home'], axis=1)
+    df = df.drop(['Starters', 'Home'], axis=1, errors="ignore")
+    df = sanitize_game_df(df)
+    allowed_columns = get_schema_columns(team_dict)
+    if allowed_columns:
+        df = df.reindex(columns=allowed_columns, fill_value=0)
     df['MP'] = df['MP'].apply(convert_MP)
     df = df.fillna(0).astype(float)
     df = min_max_scaler.fit_transform(df)
@@ -404,4 +427,11 @@ def predict_single_game(model, team_dict, team1, team2, game_date, end_date):
     print(f"Confidence: {confidence:.2%}")
 
 
-
+def _normalize_game_date(game_date):
+    for fmt in ("%Y-%m-%d", "%m-%d-%Y"):
+        try:
+            parsed = datetime.datetime.strptime(game_date, fmt)
+        except ValueError:
+            continue
+        return parsed.date()
+    raise ValueError("Invalid date format. Use YYYY-MM-DD.")

@@ -20,7 +20,13 @@ from langgraph.graph import StateGraph
 from agent.tools import fetch_and_rank_news
 from agent.prediction_node import prediction_node
 from agent.state import State
+from dotenv import load_dotenv
+from pathlib import Path
 
+
+ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(ROOT / "simple_agent" / ".env")
+load_dotenv(ROOT / ".env")
 
 llm = Ollama(model="llama3")
 tools = [fetch_and_rank_news]
@@ -49,10 +55,26 @@ async def run_agent(state: State) -> dict:
         "input": f"fetch_and_rank_news({json.dumps(payload)})",
         "chat_history": state.chat_history,
     })
+    news_preview_text = _extract_agent_output(result)
     return {
         "query": state.query,
         "agent_outcome": result,
+        "news_preview_text": news_preview_text,
     }
+
+
+def _extract_agent_output(agent_outcome: Any) -> Optional[str]:
+    if agent_outcome is None:
+        return None
+    if isinstance(agent_outcome, AgentFinish):
+        return agent_outcome.return_values.get("output") or str(agent_outcome)
+    if isinstance(agent_outcome, BaseMessage):
+        return agent_outcome.content
+    if isinstance(agent_outcome, dict):
+        return agent_outcome.get("output") or agent_outcome.get("content") or str(agent_outcome)
+    if hasattr(agent_outcome, "content"):
+        return getattr(agent_outcome, "content")
+    return str(agent_outcome)
 
 
 graph = (

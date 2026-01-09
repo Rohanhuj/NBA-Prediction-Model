@@ -22,7 +22,11 @@ from dotenv import load_dotenv
 from newspaper import Article
 import re
 import os
-load_dotenv()
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(ROOT / "simple_agent" / ".env")
+load_dotenv(ROOT / ".env")
 
 
 tavily = TavilyClient(api_key = os.getenv("TAVILY_API_KEY"))

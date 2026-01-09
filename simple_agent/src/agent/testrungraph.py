@@ -4,10 +4,10 @@ from graph import graph, State
 
 async def run():
     payload = {
-        "query": "Lakers vs Warriors NBA 04-04-2019 Prediction",
+        "query": "Lakers vs Warriors NBA 2019-04-04 Prediction",
         "home_team": "LAL",
         "away_team": "GSW",
-        "game_date": "04-04-2019",
+        "game_date": "2019-04-04",
     }
     result = await graph.ainvoke(payload)
     print("== MODEL PICK ==")

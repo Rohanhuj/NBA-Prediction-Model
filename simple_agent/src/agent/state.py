@@ -10,7 +10,7 @@ class State:
     # inputs
     home_team: Optional[str] = None
     away_team: Optional[str] = None
-    game_date: Optional[str] = None  # "MM-DD-YYYY"
+    game_date: Optional[str] = None  # "YYYY-MM-DD"
 
     # derived by the node (season start it used)
     end_date: Optional[str] = None   # "MM-DD-YYYY"
@@ -24,3 +24,4 @@ class State:
     error: Optional[str] = None
 
     news_explanation: Optional[str] = None
+    news_preview_text: Optional[str] = None

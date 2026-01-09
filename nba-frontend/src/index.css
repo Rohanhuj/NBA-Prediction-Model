@@ -4,7 +4,6 @@
   font-family: 'Space Grotesk', 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
   line-height: 1.6;
   font-weight: 400;
-  background: radial-gradient(circle at 20% 20%, #0f1f38 0, #0c1830 42%, #0a1327 80%);
   color: #e9eef5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -19,6 +18,9 @@
 body {
   margin: 0;
   min-height: 100vh;
+  background:
+    linear-gradient(rgba(10, 16, 30, 0.78), rgba(10, 16, 30, 0.9)),
+    url('/court-bg.png') center/cover no-repeat fixed;
 }
 
 a {

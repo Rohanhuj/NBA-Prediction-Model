@@ -18,12 +18,14 @@ if str(MODEL_DIR) not in sys.path:
 
 from generate_model import (
     encode, process_dict, find_recent_games, get_games_against_opponent,
-    convert_MP, min_max_scaler, power_rank, standings_rank
+    convert_MP, min_max_scaler, power_rank, sanitize_game_df, standings_rank,
+    get_schema_columns,
 )
 
 
 MODEL_PKL = ROOT / "model" / "model.pkl"
 DATA_DIR = ROOT / "model" / "data"
+SCHEMA_REFERENCE_DATE = "2022-01-15"
 
 SEASONS = [
     ("10-26-2015", "07-01-2016", "dict15-16.pkl", "powerrankings15-16.pkl", "standings"),
@@ -36,6 +38,17 @@ SEASONS = [
 ]
 
 DATE_FMT = "%m-%d-%Y"
+
+def normalize_game_date(game_date: str) -> str:
+    for fmt in ("%Y-%m-%d", DATE_FMT):
+        try:
+            parsed = datetime.datetime.strptime(game_date, fmt)
+        except ValueError:
+            continue
+        if fmt == "%Y-%m-%d":
+            return parsed.strftime(DATE_FMT)
+        return game_date
+    raise ValueError("Invalid date format. Use YYYY-MM-DD.")
 
 def _to_date(s: str) -> datetime.date:
     return datetime.datetime.strptime(s, DATE_FMT).date()
@@ -58,7 +71,8 @@ def _load_rank(rank_file: str):
             return pickle.load(f) 
         
 def get_ranked_team_dict(game_date : str):
-    gd = _to_date(game_date)
+    normalized_date = normalize_game_date(game_date)
+    gd = _to_date(normalized_date)
     for start_s, end_s, dict_fname, rank_fname, method, *cutoff in SEASONS:
         if _to_date(start_s) <= gd < _to_date(end_s):
             team_dict = _load_team_dict(dict_fname)
@@ -68,17 +82,29 @@ def get_ranked_team_dict(game_date : str):
             elif method == "standings":
                 ranked = standings_rank(rank, team_dict)
             return ranked, start_s, dict_fname
-    raise ValueError(f"No season mapping covers {game_date}")
+    raise ValueError(f"No season mapping covers {normalized_date}")
 
 
 @lru_cache(maxsize=1)
 def _load_model():
     with open(MODEL_PKL, "rb") as f:
         return pickle.load(f)
+
+
+@lru_cache(maxsize=1)
+def _allowed_columns() -> tuple[str, ...]:
+    try:
+        team_dict, _, _ = get_ranked_team_dict(SCHEMA_REFERENCE_DATE)
+    except Exception:
+        return tuple()
+    _, _, safeplayers, safeteam = encode(team_dict)
+    processed = process_dict(team_dict, safeplayers, safeteam)
+    return tuple(get_schema_columns(processed))
     
 def _build_sample(team_dict: dict, team1: str, team2: str,
                   game_date: str, season_start: str) -> Optional[np.ndarray]:
-    gd = _to_date(game_date)
+    normalized_date = normalize_game_date(game_date)
+    gd = _to_date(normalized_date)
     ed = _to_date(season_start)
 
     _, _, safeplayers, safeteam = encode(team_dict)
@@ -95,7 +121,11 @@ def _build_sample(team_dict: dict, team1: str, team2: str,
     df = pd.concat([t1v2, pad, t1r, pad, t2v1, pad, t2r, pad])
 
     df = df[df["Starters"] != "Team Totals"]
-    df = df.drop(["Starters", "Home"], axis=1)
+    df = df.drop(["Starters", "Home"], axis=1, errors="ignore")
+    df = sanitize_game_df(df)
+    allowed_columns = _allowed_columns()
+    if allowed_columns:
+        df = df.reindex(columns=list(allowed_columns), fill_value=0)
     df["MP"] = df["MP"].apply(convert_MP)
     df = df.fillna(0).astype(float)
     df = min_max_scaler.fit_transform(df)
