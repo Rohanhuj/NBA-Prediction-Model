@@ -1,5 +1,15 @@
 # NBA Prediction Studio
 
+
+<img width="2546" height="1178" alt="image" src="https://github.com/user-attachments/assets/8afe684b-7eae-40a1-aa83-7b3282358600" />
+
+<img width="2544" height="874" alt="image" src="https://github.com/user-attachments/assets/a38824e5-a351-4ffa-9a42-578ce003b739" />
+<img width="2559" height="1091" alt="image" src="https://github.com/user-attachments/assets/4e0df257-e189-4807-b691-7399b8d32e57" />
+<img width="2549" height="1177" alt="image" src="https://github.com/user-attachments/assets/14f34f7c-a218-4b9f-ac03-af6e59365c95" />
+<img width="2543" height="742" alt="image" src="https://github.com/user-attachments/assets/85d7b15f-21ae-44b9-983d-1cf0ea9c4755" />
+
+
+
 This project is a full NBA prediction experience that I built to combine schedule browsing, model picks, and LLM-backed explanations in one place. The core idea is simple: the schedule stays fast and lightweight, and richer explanations are only generated when I actually open a matchup. That keeps the UI responsive while still letting me dive deep into a single game.
 
 ## Why it is structured this way
